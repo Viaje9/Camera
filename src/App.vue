@@ -50,6 +50,7 @@ const { getUserMedia } = useMedia()
 const remoteStream = ref<MediaStream | null>(null)
 const currentFacingMode = ref<'user' | 'environment'>('environment')
 const allowConnection = ref(false) // 控制是否允許切換到連線畫面
+const userHasCopiedSDP = ref(false) // 追踪使用者是否已複製 SDP
 
 // 檢查 WebRTC 支援
 const checkWebRTCSupport = () => {
@@ -69,6 +70,7 @@ const isMobile = () => {
 const handleRoleSelection = (role: Role) => {
   setRole(role)
   allowConnection.value = false // 重置連線允許狀態
+  userHasCopiedSDP.value = false // 重置 SDP 複製狀態
   
   // 手機預設使用前鏡頭
   if (isMobile() && role === 'sender') {
@@ -251,25 +253,8 @@ const handleRemoteSDPChange = async (sdp: string) => {
         // 等待 ICE gathering 完成後才顯示完成狀態
         // 這個狀態會在 onIceCandidate 回調中更新
         
-        // 給對方一些時間處理 Answer，然後允許連線
-        setTimeout(() => {
-          allowConnection.value = true
-          console.log('接收端現在允許連線')
-          
-          // 檢查是否已經有遠端流，如果有的話嘗試連線
-          if (remoteStream.value && remoteStream.value.getVideoTracks().length > 0) {
-            const videoTrack = remoteStream.value.getVideoTracks()[0]
-            console.log('檢查已存在的遠端流，軌道狀態:', videoTrack.readyState)
-            
-            if (videoTrack.readyState === 'live') {
-              console.log('遠端流已準備好，立即切換畫面')
-              setStatus('連線成功！')
-              setTimeout(() => {
-                setConnected()
-              }, 500)
-            }
-          }
-        }, 3000) // 3秒後允許連線
+        // 接收端不自動允許連線，必須等待使用者複製 Answer 後才允許
+        console.log('接收端 Answer 已生成，等待使用者複製')
       } else {
         setStatus('錯誤：接收端應該收到 Offer，但收到了 ' + sdpData.type)
         setLoading(false)
@@ -336,6 +321,7 @@ const handleDisconnect = () => {
   close()
   reset()
   allowConnection.value = false // 重置連線允許狀態
+  userHasCopiedSDP.value = false // 重置 SDP 複製狀態
   
   // 停止所有媒體流
   if (localStream.value) {
@@ -351,6 +337,32 @@ const handleDisconnect = () => {
   // 強制清理狀態
   setLocalSDP('')
   setRemoteSDP('')
+}
+
+// 處理 SDP 複製事件
+const handleSDPCopied = () => {
+  userHasCopiedSDP.value = true
+  console.log('使用者已複製 SDP')
+  
+  // 如果是接收端，複製 Answer 後允許連線
+  if (isReceiver.value) {
+    allowConnection.value = true
+    console.log('接收端使用者已複製 Answer，現在允許連線')
+    
+    // 檢查是否已經有遠端流，如果有的話嘗試連線
+    if (remoteStream.value && remoteStream.value.getVideoTracks().length > 0) {
+      const videoTrack = remoteStream.value.getVideoTracks()[0]
+      console.log('檢查已存在的遠端流，軌道狀態:', videoTrack.readyState)
+      
+      if (videoTrack.readyState === 'live') {
+        console.log('遠端流已準備好，立即切換畫面')
+        setStatus('連線成功！')
+        setTimeout(() => {
+          setConnected()
+        }, 500)
+      }
+    }
+  }
 }
 
 // 返回角色選擇
@@ -412,6 +424,7 @@ onMounted(() => {
     :is-sender="isSender"
     @update:remote-s-d-p="setRemoteSDP"
     @back="handleBack"
+    @sdp-copied="handleSDPCopied"
   />
 
   <!-- 發送端連線後畫面 -->

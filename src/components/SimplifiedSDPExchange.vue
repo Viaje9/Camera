@@ -145,6 +145,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:remoteSDP': [value: string]
   'back': []
+  'sdpCopied': []
 }>()
 
 const { writeText, readText } = useClipboard()
@@ -172,6 +173,9 @@ const copyLocalSDP = async () => {
   if (props.isSender) {
     copyClicked.value = true
   }
+  
+  // 通知父組件已複製 SDP（發送端和接收端都需要）
+  emit('sdpCopied')
   
   setTimeout(() => {
     copying.value = false
