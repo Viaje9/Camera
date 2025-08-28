@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 檢出程式碼
+        uses: actions/checkout@v4
+
+      - name: 驗證 HTML 結構
+        run: |
+          # 檢查主要 HTML 檔案是否存在
+          if [ ! -f "test.html" ]; then
+            echo "❌ test.html 檔案不存在"
+            exit 1
+          fi
+          echo "✅ test.html 檔案存在"
+
+      - name: HTML 語法驗證
+        uses: Cyb3r-Jak3/html5validator-action@v7.2.0
+        with:
+          root: ./
+          css: true
+          format: text
+
+      - name: 檢查 WebRTC API 使用
+        run: |
+          # 檢查是否包含必要的 WebRTC API
+          if ! grep -q "RTCPeerConnection" test.html; then
+            echo "❌ 未找到 RTCPeerConnection API"
+            exit 1
+          fi
+          if ! grep -q "getUserMedia" test.html; then
+            echo "❌ 未找到 getUserMedia API"
+            exit 1
+          fi
+          echo "✅ WebRTC API 檢查通過"
+
+      - name: JavaScript 語法檢查
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          # 使用 Node.js 檢查 JavaScript 語法
+          node -c <(grep -oP '(?<=<script[^>]*>).*?(?=</script>)' test.html | head -1) || {
+            echo "❌ JavaScript 語法檢查失敗"
+            exit 1
+          }
+          echo "✅ JavaScript 語法檢查通過"
