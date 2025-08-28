@@ -78,85 +78,85 @@ npm run format
 
 ## 📊 WebRTC 通訊時序圖
 
-### 完整通訊流程
+### 🔄 完整通訊流程
 
 ```mermaid
 sequenceDiagram
-    participant S as 📱 發送端
-    participant U1 as 👤 發送端使用者
-    participant U2 as 👤 接收端使用者  
-    participant R as 📺 接收端
+    participant S as 發送端
+    participant U1 as 發送端使用者
+    participant U2 as 接收端使用者  
+    participant R as 接收端
     
-    Note over S,R: 🚀 初始化階段
-    S->>S: 選擇「發送端」角色
-    R->>R: 選擇「接收端」角色
+    Note over S,R: 初始化階段
+    S->>S: 選擇發送端角色
+    R->>R: 選擇接收端角色
     
-    Note over S,R: 📹 媒體準備階段
-    S->>S: 初始化相機 (getUserMedia)
+    Note over S,R: 媒體準備階段
+    S->>S: 初始化相機 getUserMedia
     S->>S: 創建 RTCPeerConnection
     S->>S: 添加視訊軌道到連線
     R->>R: 創建 RTCPeerConnection
     
-    Note over S,R: 🤝 SDP 交換階段 (Offer)
+    Note over S,R: SDP 交換階段 Offer
     S->>S: 創建 Offer
-    S->>S: 設定本地描述 (setLocalDescription)
+    S->>S: 設定本地描述 setLocalDescription
     S->>S: 等待 ICE 候選收集完成
     S->>S: 生成完整的 Offer JSON
     
-    S-->>U1: 📋 顯示「複製 Offer」按鈕
-    U1->>U1: 👆 點擊複製按鈕
-    U1->>U1: 📱 透過訊息 app 傳送給接收端
+    S-->>U1: 顯示複製 Offer 按鈕
+    U1->>U1: 點擊複製按鈕
+    U1->>U1: 透過訊息 app 傳送給接收端
     
-    U2->>U2: 📱 收到 Offer JSON
-    U2-->>R: 📄 貼上 Offer JSON
+    U2->>U2: 收到 Offer JSON
+    U2-->>R: 貼上 Offer JSON
     R->>R: 解析並設定遠端描述
     R->>R: 創建 Answer
     R->>R: 設定本地描述
     R->>R: 等待 ICE 候選收集完成
     R->>R: 生成完整的 Answer JSON
     
-    Note over S,R: 🤝 SDP 交換階段 (Answer)
-    R-->>U2: 📋 顯示「複製 Answer」按鈕
-    U2->>U2: 👆 點擊複製按鈕 (重要！)
-    Note right of U2: 🔑 只有點擊複製後<br/>接收端才允許進入連線畫面
-    U2->>U2: 📱 透過訊息 app 傳送給發送端
+    Note over S,R: SDP 交換階段 Answer
+    R-->>U2: 顯示複製 Answer 按鈕
+    U2->>U2: 點擊複製按鈕 重要!
+    Note right of U2: 只有點擊複製後<br/>接收端才允許進入連線畫面
+    U2->>U2: 透過訊息 app 傳送給發送端
     
-    U1->>U1: 📱 收到 Answer JSON
-    U1-->>S: 📄 貼上 Answer JSON
+    U1->>U1: 收到 Answer JSON
+    U1-->>S: 貼上 Answer JSON
     S->>S: 解析並設定遠端描述
     
-    Note over S,R: 🌐 ICE 連線建立
-    S<-->R: ICE 候選交換 (內建於 SDP)
+    Note over S,R: ICE 連線建立
+    S<-->R: ICE 候選交換 內建於 SDP
     S<-->R: DTLS 握手
     S<-->R: SRTP 金鑰交換
     
-    Note over S,R: 📡 媒體傳輸開始
-    S->>R: 🎥 開始傳送視訊流
+    Note over S,R: 媒體傳輸開始
+    S->>R: 開始傳送視訊流
     R->>R: onTrack 事件觸發
     R->>R: 檢查使用者已複製 Answer
-    R->>R: ✅ 切換到接收畫面
-    S->>S: ✅ 切換到發送畫面
+    R->>R: 切換到接收畫面
+    S->>S: 切換到發送畫面
     
-    Note over S,R: 🎮 即時互動功能
-    U1->>S: 🔄 切換相機
+    Note over S,R: 即時互動功能
+    U1->>S: 切換相機
     S->>S: 停止舊軌道
     S->>S: 獲取新相機流
-    S->>R: 替換視訊軌道 (replaceTrack)
-    R->>R: 🔄 顯示新相機畫面
+    S->>R: 替換視訊軌道 replaceTrack
+    R->>R: 顯示新相機畫面
     
-    U2->>R: 🪞 切換鏡像
-    R->>R: 🪞 翻轉顯示畫面
+    U2->>R: 切換鏡像
+    R->>R: 翻轉顯示畫面
     
-    U2->>R: ⊡ 進入全螢幕
-    R->>R: 📺 全螢幕顯示
+    U2->>R: 進入全螢幕
+    R->>R: 全螢幕顯示
     
-    Note over S,R: 🔌 斷線處理
-    U1->>S: ❌ 點擊斷開連線
-    S->>S: 🔔 顯示自定義確認彈窗
-    U1->>S: ✅ 確認斷開
+    Note over S,R: 斷線處理
+    U1->>S: 點擊斷開連線
+    S->>S: 顯示自定義確認彈窗
+    U1->>S: 確認斷開
     S->>S: 關閉 PeerConnection
     S->>S: 停止所有媒體軌道
-    S->>S: 🏠 返回角色選擇
+    S->>S: 返回角色選擇
 ```
 
 ### 關鍵時序點說明
