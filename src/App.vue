@@ -1,142 +1,368 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useWebRTC } from './composables/useWebRTC'
 import { useMedia } from './composables/useMedia'
-import RoleSelector, { type RoleConfig } from './components/RoleSelector.vue'
-import ControlPanel from './components/ControlPanel.vue'
-import SDPExchange from './components/SDPExchange.vue'
-import VideoPlayer from './components/VideoPlayer.vue'
+import { useAppState, type Role } from './composables/useAppState'
+import InitialRoleSelector from './components/InitialRoleSelector.vue'
+import SimplifiedSDPExchange from './components/SimplifiedSDPExchange.vue'
+import SenderView from './components/SenderView.vue'
+import ReceiverView from './components/ReceiverView.vue'
 
+// 應用狀態管理
+const appState = useAppState()
+const { 
+  currentView, 
+  selectedRole, 
+  isConnected, 
+  localSDP, 
+  remoteSDP, 
+  connectionStatus, 
+  isLoading,
+  isSender,
+  isReceiver,
+  setRole,
+  setConnected,
+  reset,
+  setLocalSDP,
+  setRemoteSDP,
+  setStatus,
+  setLoading
+} = appState
+
+// WebRTC 功能
 const { 
   localStream, 
   state, 
-  setStatus,
   createPeerConnection,
   addStream,
   createOffer,
   createAnswer,
   setRemoteDescription,
   onTrack,
-  onIceCandidate
+  onIceCandidate,
+  close
 } = useWebRTC()
 
+// 媒體功能
 const { getUserMedia } = useMedia()
 
-const roleConfig = ref<RoleConfig>({
-  role: 'sender',
-  withAudio: false,
-  facingMode: 'environment'
-})
-
-const localSDP = ref('')
-const remoteSDP = ref('')
+// 其他狀態
 const remoteStream = ref<MediaStream | null>(null)
+const currentFacingMode = ref<'user' | 'environment'>('environment')
+const allowConnection = ref(false) // 控制是否允許切換到連線畫面
 
-// 控制按鈕狀態
-const canCreateOffer = ref(false)
-const canSetOfferAndAnswer = ref(false)
-const canApplyAnswer = ref(false)
-
-// 計算屬性
-const isSender = computed(() => roleConfig.value.role === 'sender')
-
+// 檢查 WebRTC 支援
 const checkWebRTCSupport = () => {
   if (!('RTCPeerConnection' in window)) {
-    setStatus('此瀏覽器不支援 WebRTC。', 'bad')
+    setStatus('此瀏覽器不支援 WebRTC。')
     return false
   }
   return true
 }
 
-const start = async () => {
+// 偵測是否為手機
+const isMobile = () => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+}
+
+// 角色選擇處理
+const handleRoleSelection = (role: Role) => {
+  setRole(role)
+  allowConnection.value = false // 重置連線允許狀態
+  
+  // 手機預設使用前鏡頭
+  if (isMobile() && role === 'sender') {
+    currentFacingMode.value = 'user'
+  }
+  
+  // 自動初始化 WebRTC
+  setTimeout(() => {
+    initializeWebRTC()
+  }, 300)
+}
+
+// 初始化 WebRTC 連線
+const initializeWebRTC = async () => {
   if (!checkWebRTCSupport()) return
 
-  setStatus('初始化中...')
-  createPeerConnection()
-
-  // 設置 track 事件處理
-  onTrack((event) => {
-    const [stream] = event.streams
-    remoteStream.value = stream
-  })
-
-  // 設置 ICE candidate 事件處理
-  onIceCandidate((description) => {
-    if (description) {
-      localSDP.value = JSON.stringify(description)
-    }
-  })
-
-  if (isSender.value) {
-    try {
-      const stream = await getUserMedia({
-        video: { facingMode: roleConfig.value.facingMode },
-        audio: roleConfig.value.withAudio
-      })
-      
-      localStream.value = stream
-      addStream(stream)
-      
-      setStatus('本機媒體啟動完成。請按「建立 Offer」。', 'ok')
-      canCreateOffer.value = true
-      canSetOfferAndAnswer.value = false
-      canApplyAnswer.value = true
-    } catch (error: unknown) {
-      setStatus('取得相機/麥克風失敗：' + (error instanceof Error ? error.message : String(error)), 'bad')
-    }
-  } else {
-    // viewer 不啟用本機相機
-    localStream.value = null
-    setStatus('接收端就緒。請貼上對方的 Offer，然後按「設定遠端 Offer 並建立 Answer」。', 'warn')
-    canCreateOffer.value = false
-    canSetOfferAndAnswer.value = true
-    canApplyAnswer.value = false
+  // 確保完全清理之前的狀態
+  if (remoteStream.value) {
+    remoteStream.value.getTracks().forEach(track => track.stop())
+    remoteStream.value = null
   }
+  
+  setLoading(true)
+  setStatus('初始化中...')
+  console.log('開始初始化 WebRTC，角色:', selectedRole.value)
+  
+  try {
+    createPeerConnection()
+
+    // 設置 track 事件處理
+    onTrack((event) => {
+      const [stream] = event.streams
+      console.log('收到遠端流:', stream, '當前角色:', selectedRole.value, '允許連線:', allowConnection.value)
+      
+      // 立即設置遠端流供顯示使用
+      remoteStream.value = stream
+      
+      // 只有在允許連線的情況下才嘗試切換畫面
+      if (!allowConnection.value) {
+        console.log('尚未允許連線，等待中...')
+        return
+      }
+      
+      // 只有當實際收到有效的視訊流時才切換畫面
+      if (stream && stream.getVideoTracks().length > 0) {
+        const videoTrack = stream.getVideoTracks()[0]
+        
+        console.log('視訊軌道狀態:', videoTrack.readyState)
+        
+        // 確保軌道真的是活躍的且有資料
+        const handleStreamReady = () => {
+          if (videoTrack.readyState === 'live') {
+            console.log('視訊流準備就緒，切換到連線完成畫面')
+            setStatus('連線成功！')
+            setTimeout(() => {
+              setConnected()
+            }, 500)
+          }
+        }
+        
+        // 如果軌道已經準備好，直接處理
+        if (videoTrack.readyState === 'live') {
+          handleStreamReady()
+        } else {
+          // 否則監聽軌道狀態變化
+          videoTrack.addEventListener('unmute', handleStreamReady)
+          videoTrack.addEventListener('started', handleStreamReady)
+          
+          // 備用檢查機制
+          setTimeout(() => {
+            if (videoTrack.readyState === 'live' && allowConnection.value) {
+              handleStreamReady()
+            }
+          }, 1000)
+        }
+      }
+    })
+
+    // 設置 ICE candidate 事件處理
+    onIceCandidate((description) => {
+      if (description) {
+        console.log('ICE 蒐集完成:', {
+          role: selectedRole.value,
+          type: description.type,
+          description: description
+        })
+        setLocalSDP(JSON.stringify(description))
+        
+        // 如果是接收端且正在處理 Answer，更新狀態
+        if (isReceiver.value && description.type === 'answer') {
+          setStatus('Answer 已生成，請複製給對方。等待對方完成連線...')
+          console.log('接收端 Answer 已準備好')
+        }
+      }
+    })
+
+    if (isSender.value) {
+      await initializeSender()
+    } else {
+      await initializeReceiver()
+    }
+  } catch (error: unknown) {
+    setStatus('初始化失敗：' + (error instanceof Error ? error.message : String(error)))
+  }
+  
+  setLoading(false)
 }
 
-const handleCreateOffer = async () => {
+// 初始化發送端
+const initializeSender = async () => {
   try {
+    const stream = await getUserMedia({
+      video: { facingMode: currentFacingMode.value },
+      audio: false // 簡化版不包含音訊
+    })
+    
+    localStream.value = stream
+    addStream(stream)
+    
+    setStatus('相機已啟動，正在生成 Offer...')
+    
+    // 自動生成 Offer
     await createOffer({ 
       offerToReceiveVideo: true, 
-      offerToReceiveAudio: roleConfig.value.withAudio 
+      offerToReceiveAudio: false
     })
+    
+    setStatus('Offer 已生成，請複製給對方')
   } catch (error: unknown) {
-    setStatus('建立 Offer 失敗：' + (error instanceof Error ? error.message : String(error)), 'bad')
+    setStatus('取得相機失敗：' + (error instanceof Error ? error.message : String(error)))
   }
 }
 
-const handleSetOfferAndAnswer = async () => {
+// 初始化接收端
+const initializeReceiver = async () => {
+  setStatus('等待對方的 Offer...')
+}
+
+// 自動處理遠端 SDP
+const handleRemoteSDPChange = async (sdp: string) => {
+  if (!sdp.trim()) return
+  
   try {
-    const txt = remoteSDP.value.trim()
-    if (!txt) {
-      alert('請先貼上對方的 Offer (JSON)')
-      return
-    }
+    const sdpData = JSON.parse(sdp)
+    setLoading(true)
     
-    const offer = JSON.parse(txt)
-    await setRemoteDescription(offer)
-    setStatus('已設定遠端 Offer，建立 Answer 中...')
-    await createAnswer()
+    console.log('處理 SDP:', {
+      role: selectedRole.value,
+      sdpType: sdpData.type,
+      sdpData: sdpData
+    })
+    
+    if (isSender.value) {
+      // 發送端應該收到 Answer
+      if (sdpData.type === 'answer') {
+        setStatus('處理 Answer 中...')
+        await setRemoteDescription(sdpData)
+        allowConnection.value = true // 發送端可以開始連線
+        
+        setTimeout(() => {
+          setConnected()
+          setStatus('連線成功')
+        }, 1000)
+      } else {
+        setStatus('錯誤：發送端應該收到 Answer，但收到了 ' + sdpData.type)
+        setLoading(false)
+        return
+      }
+    } else {
+      // 接收端應該收到 Offer
+      if (sdpData.type === 'offer') {
+        setStatus('處理 Offer 並生成 Answer...')
+        await setRemoteDescription(sdpData)
+        await createAnswer()
+        setStatus('Answer 正在生成中，等待 ICE 蒐集完成...')
+        
+        // 等待 ICE gathering 完成後才顯示完成狀態
+        // 這個狀態會在 onIceCandidate 回調中更新
+        
+        // 給對方一些時間處理 Answer，然後允許連線
+        setTimeout(() => {
+          allowConnection.value = true
+          console.log('接收端現在允許連線')
+          
+          // 檢查是否已經有遠端流，如果有的話嘗試連線
+          if (remoteStream.value && remoteStream.value.getVideoTracks().length > 0) {
+            const videoTrack = remoteStream.value.getVideoTracks()[0]
+            console.log('檢查已存在的遠端流，軌道狀態:', videoTrack.readyState)
+            
+            if (videoTrack.readyState === 'live') {
+              console.log('遠端流已準備好，立即切換畫面')
+              setStatus('連線成功！')
+              setTimeout(() => {
+                setConnected()
+              }, 500)
+            }
+          }
+        }, 3000) // 3秒後允許連線
+      } else {
+        setStatus('錯誤：接收端應該收到 Offer，但收到了 ' + sdpData.type)
+        setLoading(false)
+        return
+      }
+    }
   } catch (error: unknown) {
-    setStatus('處理 Offer/Answer 失敗：' + (error instanceof Error ? error.message : String(error)), 'bad')
+    setStatus('處理 SDP 失敗：' + (error instanceof Error ? error.message : String(error)))
+  }
+  
+  setLoading(false)
+}
+
+// 切換相機
+const handleCameraSwitch = async (facingMode: 'user' | 'environment') => {
+  if (!localStream.value) return
+  
+  try {
+    // 停止當前流
+    localStream.value.getTracks().forEach(track => track.stop())
+    
+    // 獲取新的流
+    const newStream = await getUserMedia({
+      video: { facingMode },
+      audio: false
+    })
+    
+    localStream.value = newStream
+    currentFacingMode.value = facingMode
+    
+    // 重新添加到 peer connection
+    // 這裡需要更新 WebRTC composable 來支持替換軌道
+    addStream(newStream)
+  } catch (error: unknown) {
+    setStatus('切換相機失敗：' + (error instanceof Error ? error.message : String(error)))
   }
 }
 
-const handleApplyAnswer = async () => {
-  try {
-    const txt = remoteSDP.value.trim()
-    if (!txt) {
-      alert('請先貼上對方回傳的 Answer (JSON)')
-      return
-    }
-    
-    const answer = JSON.parse(txt)
-    await setRemoteDescription(answer)
-    setStatus('連線完成（等待 ICE 連上）。', 'ok')
-  } catch (error: unknown) {
-    setStatus('設定遠端 Answer 失敗：' + (error instanceof Error ? error.message : String(error)), 'bad')
+// 斷開連線
+const handleDisconnect = () => {
+  console.log('斷開連線，清理所有狀態')
+  close()
+  reset()
+  allowConnection.value = false // 重置連線允許狀態
+  
+  // 停止所有媒體流
+  if (localStream.value) {
+    localStream.value.getTracks().forEach(track => track.stop())
+    localStream.value = null
   }
+  
+  if (remoteStream.value) {
+    remoteStream.value.getTracks().forEach(track => track.stop())
+    remoteStream.value = null
+  }
+  
+  // 強制清理狀態
+  setLocalSDP('')
+  setRemoteSDP('')
 }
+
+// 返回角色選擇
+const handleBack = () => {
+  handleDisconnect()
+}
+
+// 監聽遠端 SDP 變化
+watch(remoteSDP, (newValue) => {
+  if (newValue && newValue.trim()) {
+    handleRemoteSDPChange(newValue)
+  }
+})
+
+// 監聽 WebRTC 狀態變化
+watch(() => state.value.status, (newStatus) => {
+  setStatus(newStatus)
+})
+
+// 監聽連線允許狀態變化
+watch(allowConnection, (newValue) => {
+  console.log('allowConnection 狀態變化:', newValue)
+  
+  // 如果允許連線且已經有遠端流，嘗試切換畫面
+  if (newValue && remoteStream.value && remoteStream.value.getVideoTracks().length > 0) {
+    const videoTrack = remoteStream.value.getVideoTracks()[0]
+    console.log('檢查連線狀態變化時的遠端流，軌道狀態:', videoTrack.readyState)
+    
+    if (videoTrack.readyState === 'live') {
+      console.log('因連線狀態變化切換到連線完成畫面')
+      setStatus('連線成功！')
+      setTimeout(() => {
+        setConnected()
+      }, 500)
+    }
+  }
+})
 
 onMounted(() => {
   checkWebRTCSupport()
@@ -144,190 +370,211 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="wrap">
-    <h1>一頁版 WebRTC 相機分享（無伺服器手動訊令）</h1>
-    <p class="hint">
-      兩台裝置皆開啟本頁，選擇角色後依步驟複製貼上 <b>SDP</b> 即可直接 P2P 傳送相機畫面。
-      需要 <b>HTTPS</b>（或 <code>localhost</code>）。行動 Safari 請點擊按鈕觸發播放。
-    </p>
+  <!-- 角色選擇畫面 -->
+  <InitialRoleSelector 
+    v-if="currentView === 'role-selection'"
+    @role-selected="handleRoleSelection"
+  />
 
-    <div class="card">
-      <RoleSelector @change="roleConfig = $event" />
-      
-      <ControlPanel
-        :can-create-offer="canCreateOffer"
-        :can-set-offer-and-answer="canSetOfferAndAnswer"
-        :can-apply-answer="canApplyAnswer"
-        @start="start"
-        @create-offer="handleCreateOffer"
-        @set-offer-and-answer="handleSetOfferAndAnswer"
-        @apply-answer="handleApplyAnswer"
-      />
+  <!-- SDP 交換畫面 -->
+  <SimplifiedSDPExchange 
+    v-else-if="currentView === 'sdp-exchange'"
+    :local-s-d-p="localSDP"
+    :remote-s-d-p="remoteSDP"
+    :connection-status="connectionStatus"
+    :is-loading="isLoading"
+    :is-sender="isSender"
+    @update:remote-s-d-p="setRemoteSDP"
+    @back="handleBack"
+  />
 
-      <SDPExchange
-        :local-s-d-p="localSDP"
-        :gather-status="state.gatherStatus"
-        :gather-class="state.gatherClass"
-        v-model:remote-s-d-p="remoteSDP"
-      />
+  <!-- 發送端連線後畫面 -->
+  <SenderView 
+    v-else-if="currentView === 'connected' && isSender"
+    :stream="localStream"
+    :connection-status="connectionStatus"
+    :connection-status-class="'ok'"
+    :has-audio="false"
+    @disconnect="handleDisconnect"
+    @camera-switch="handleCameraSwitch"
+  />
 
-      <div class="videos" style="margin-top:12px">
-        <VideoPlayer
-          title="本機預覽"
-          :stream="localStream"
-          muted
-        />
-        <VideoPlayer
-          title="遠端畫面"
-          :stream="remoteStream"
-          show-fullscreen-button
-        />
-      </div>
-
-      <div class="status" :class="state.statusClass">狀態：{{ state.status }}</div>
-      <p class="hint small">
-        若在嚴苛 NAT 環境下無法連線，可能需 TURN 伺服器。可在程式中加入 
-        <code>iceServers: [{ urls: 'turn:YOUR_TURN', username: 'u', credential: 'p' }]</code>。
-      </p>
-    </div>
-  </div>
+  <!-- 接收端連線後畫面 -->
+  <ReceiverView 
+    v-else-if="currentView === 'connected' && isReceiver"
+    :stream="remoteStream"
+    :connection-status="connectionStatus"
+    :connection-status-class="'ok'"
+    @disconnect="handleDisconnect"
+  />
 </template>
 
 <style>
+/* 全域 CSS 變数 */
 :root { 
-  --bg:#0b1020; 
-  --fg:#e9eef7; 
-  --muted:#9fb0c3; 
-  --card:#131a32; 
-  --accent:#7aa2ff; 
+  --bg: #0b1020; 
+  --fg: #e9eef7; 
+  --muted: #9fb0c3; 
+  --card: #131a32; 
+  --accent: #7aa2ff;
+  --border: #2e3a6b;
+  --error: #fb7185;
+  --success: #6ee7b7;
+  --warning: #fbbf24;
+}
+
+/* 重設和基本樣式 */
+* {
+  box-sizing: border-box;
 }
 
 html, body {
-  height: 100%
-}
-
-body {
+  height: 100%;
   margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 
+               'Noto Sans TC', 'Helvetica Neue', Arial, sans-serif;
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans TC, Helvetica, Arial, Apple Color Emoji, Noto Color Emoji, Segoe UI Emoji
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.wrap {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 16px
+/* 手機版最佳化 */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+    line-height: 1.5;
+  }
 }
 
-h1 {
-  font-size: 20px;
-  margin: 8px 0 12px
+/* 觸摸優化 */
+@media (hover: none) and (pointer: coarse) {
+  /* 手機裝置的觸摸優化 */
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px
-}
-
-.card {
-  background: var(--card);
-  border-radius: 14px;
-  padding: 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.25)
-}
-
-fieldset {
-  border: 1px solid #2a355b;
-  border-radius: 10px
-}
-
-legend {
-  color: var(--muted)
-}
-
-label {
-  margin-right: 12px;
-  white-space: nowrap
-}
-
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 8px 0
-}
-
-button, select {
-  background: #1a2345;
-  border: 1px solid #2e3a6b;
-  color: var(--fg);
-  padding: 8px 12px;
-  border-radius: 10px;
-  cursor: pointer
-}
-
-button[disabled] {
-  opacity: .5;
-  cursor: not-allowed
-}
-
-textarea {
-  width: 100%;
-  min-height: 140px;
-  background: #0f142a;
-  color: var(--fg);
-  border: 1px solid #2e3a6b;
-  border-radius: 10px;
-  padding: 8px
-}
-
-.videos {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px
-}
-
-video {
-  width: 100%;
-  aspect-ratio: 16/9;
-  background: #000;
-  border-radius: 12px
-}
-
+/* 全局組件樣式 */
 .mirror { 
-  transform: scaleX(-1); 
-  transform-origin: center; 
-}
-
-.hint {
-  color: var(--muted);
-  font-size: 13px
-}
-
-.status {
-  margin-top: 6px;
-  color: #b6cffd;
-  font-size: 13px
+  transform: scaleX(-1);
+  transform-origin: center;
 }
 
 .ok {
-  color: #6ee7b7
+  color: var(--success) !important;
 }
 
 .warn {
-  color: #fbbf24
+  color: var(--warning) !important;
 }
 
 .bad {
-  color: #fb7185
+  color: var(--error) !important;
 }
 
 .small {
-  font-size: 13px
+  font-size: 0.85rem;
 }
 
 a {
-  color: var(--accent)
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* 通用动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* 屏幕方向鎖定 */
+@media screen and (orientation: portrait) {
+  /* 竖屏樣式 */
+  .mobile-optimize {
+    flex-direction: column;
+  }
+}
+
+@media screen and (orientation: landscape) {
+  /* 横屏樣式 */
+  .mobile-optimize {
+    flex-direction: row;
+  }
+}
+
+/* 可訪問性優化 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 高對比度模式 */
+@media (prefers-contrast: high) {
+  :root {
+    --bg: #000000;
+    --fg: #ffffff;
+    --card: #1a1a1a;
+    --border: #666666;
+  }
+}
+
+/* 暗色主題優化 */
+@media (prefers-color-scheme: light) {
+  /* 如果需要支持亮色主題，可在這裡添加 */
+}
+
+/* PWA 支持 */
+@media (display-mode: standalone) {
+  /* PWA 模式下的樣式調整 */
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* iOS Safari 優化 */
+@supports (-webkit-touch-callout: none) {
+  /* iOS 裝置特定樣式 */
+  body {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  input, textarea, button {
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
+}
+
+/* Android 優化 */
+@media screen and (-webkit-min-device-pixel-ratio: 2) {
+  /* 高密度螢幕優化 */
 }
 </style>
