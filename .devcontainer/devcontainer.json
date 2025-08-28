@@ -18,7 +18,8 @@
         "ms-vscode.vscode-json",
         "eamodio.gitlens",
         "anthropic.claude-code",
-        "mhutchie.git-graph"
+        "mhutchie.git-graph",
+        "vue.volar"
       ],
       "settings": {
         "editor.formatOnSave": true,
