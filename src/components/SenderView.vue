@@ -92,7 +92,7 @@ const emit = defineEmits<{
   cameraSwitch: [facingMode: 'user' | 'environment']
 }>()
 
-const { setVideoSource, toggleMirror: toggleVideoMirror, getUserMedia } = useMedia()
+const { setVideoSource, toggleMirror: toggleVideoMirror } = useMedia()
 
 const localVideoRef = ref<HTMLVideoElement | null>(null)
 const mirrorEnabled = ref(false)

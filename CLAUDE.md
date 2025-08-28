@@ -4,48 +4,104 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概述
 
-這是一個 WebRTC 相機分享應用程式，以單一 HTML 檔案（`test.html`）實作。該應用程式使用手動 SDP（Session Description Protocol）交換，實現兩台裝置間的點對點視訊串流，無需伺服器。
+這是一個 WebRTC 相機分享應用程式，已從原始的單一 HTML 檔案重構為 Vue.js 架構。應用程式使用手動 SDP（Session Description Protocol）交換，實現兩台裝置間的點對點視訊串流，無需伺服器。
+
+## 開發指令
+
+### 專案設置
+```bash
+npm install
+```
+
+### 開發伺服器
+```bash
+npm run dev
+```
+
+### 生產建置
+```bash
+npm run build
+```
+
+### 代碼檢查與修正
+```bash
+npm run lint       # 執行所有 linting 工具
+npm run lint:eslint # 僅執行 ESLint
+npm run lint:oxlint # 僅執行 Oxlint
+```
+
+### 類型檢查
+```bash
+npm run type-check
+```
+
+### 代碼格式化
+```bash
+npm run format
+```
 
 ## 架構
 
-### 核心組件
-- **單檔案 HTML 應用程式**：整個應用程式包含在 `test.html` 中，內嵌 CSS 和 JavaScript
-- **WebRTC P2P 連線**：使用 RTCPeerConnection 進行直接的點對點視訊串流
-- **手動訊令交換**：不使用訊令伺服器，使用者需手動複製/貼上 SDP offers 和 answers
-- **角色導向操作**：支援兩種角色 - 發送端（分享相機）和接收端（觀看視訊）
-
-### 主要功能
-- 相機/麥克風存取，支援前後鏡頭切換
-- 即時視訊串流，可選音訊
-- 本機和遠端視訊的鏡像翻轉控制
-- 遠端視訊全螢幕支援
-- 手動 SDP 交換工作流程，整合剪貼簿功能
-- 響應式設計搭配深色主題
-
-### WebRTC 流程
-1. **發送端**：建立 offer → 複製 SDP → 接收 answer → 建立連線
-2. **接收端**：接收 offer → 建立 answer → 複製 SDP → 建立連線
-3. 使用 Google STUN 伺服器進行 NAT 穿透
-
-## 開發
+### 技術堆疊
+- **Vue 3** + **TypeScript** + **Vite**
+- **Pinia** 用於狀態管理
+- **Vue Router** 用於路由（如需要）
+- **WebRTC APIs**（RTCPeerConnection、MediaStream）
+- 響應式設計與深色主題
 
 ### 檔案結構
-- `test.html` - 包含 HTML、CSS 和 JavaScript 的完整單頁應用程式
+```
+src/
+├── components/          # Vue 組件
+│   ├── InitialRoleSelector.vue    # 角色選擇畫面
+│   ├── SimplifiedSDPExchange.vue  # SDP 交換介面
+│   ├── SenderView.vue             # 發送端畫面
+│   ├── ReceiverView.vue           # 接收端畫面
+│   └── VideoPlayer.vue            # 視訊播放器
+├── composables/         # 可組合函式
+│   ├── useAppState.ts             # 應用狀態管理
+│   ├── useWebRTC.ts               # WebRTC 功能
+│   ├── useMedia.ts                # 媒體存取功能
+│   └── useClipboard.ts            # 剪貼簿功能
+└── App.vue             # 主應用程式組件
+```
 
-### 技術堆疊
-- Vanilla JavaScript（無框架）
-- WebRTC APIs（RTCPeerConnection、MediaStream）
-- CSS Grid 和 Flexbox 佈局
-- HTML5 video 元素
+### 核心 Composables
 
-### 主要 JavaScript 函式（test.html:113-299）
-- `makePC()` - 建立配置 STUN 的 RTCPeerConnection
-- `start()` - 根據選擇的角色初始化媒體串流
-- `createOffer()` - 為發送端建立 SDP offer
-- `setOfferAndCreateAnswer()` - 處理 offer 並為接收端建立 answer
-- `applyAnswer()` - 套用最終 answer 完成連線
+#### `useWebRTC.ts`
+提供 WebRTC 核心功能：
+- `createPeerConnection()` - 建立 RTCPeerConnection
+- `createOffer()` / `createAnswer()` - SDP 處理
+- `addStream()` - 添加媒體流
+- ICE candidate 和 track 事件處理
+
+#### `useAppState.ts`
+管理應用程式狀態：
+- 角色選擇（sender/receiver）
+- 連線狀態管理
+- SDP 資料交換
+- UI 狀態控制
+
+#### `useMedia.ts`
+處理媒體裝置存取：
+- `getUserMedia()` - 相機/麥克風存取
+- 裝置切換（前後鏡頭）
+- 媒體流管理
+
+### WebRTC 連線流程
+1. **角色選擇**：使用者選擇發送端或接收端角色
+2. **初始化**：根據角色初始化 WebRTC 連線和媒體流
+3. **SDP 交換**：
+   - 發送端：生成 offer → 等待 answer
+   - 接收端：接收 offer → 生成 answer
+4. **連線建立**：完成 SDP 交換後建立 P2P 連線
+5. **視訊串流**：開始點對點視訊傳輸
+
+### 舊版本支援
+- `test.html` - 保留原始單檔案 HTML 版本作為參考
 
 ### 瀏覽器相容性
 - 需要 HTTPS 或 localhost 來存取相機
-- 包含不同全螢幕 API 的後備方案
-- iOS Safari 視訊播放的特殊處理
+- 支援現代瀏覽器的 WebRTC 功能
+- 包含 iOS Safari 和 Android 的行動裝置最佳化
+- PWA 支援和響應式設計

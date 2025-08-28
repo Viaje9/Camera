@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useWebRTC } from './composables/useWebRTC'
 import { useMedia } from './composables/useMedia'
 import { useAppState, type Role } from './composables/useAppState'
@@ -13,7 +13,6 @@ const appState = useAppState()
 const { 
   currentView, 
   selectedRole, 
-  isConnected, 
   localSDP, 
   remoteSDP, 
   connectionStatus, 
@@ -157,8 +156,11 @@ const initializeWebRTC = async () => {
         })
         setLocalSDP(JSON.stringify(description))
         
-        // 如果是接收端且正在處理 Answer，更新狀態
-        if (isReceiver.value && description.type === 'answer') {
+        // 根據角色和 SDP 類型更新狀態
+        if (isSender.value && description.type === 'offer') {
+          setStatus('Offer 已生成，請複製給對方')
+          console.log('發送端 Offer 已準備好')
+        } else if (isReceiver.value && description.type === 'answer') {
           setStatus('Answer 已生成，請複製給對方。等待對方完成連線...')
           console.log('接收端 Answer 已準備好')
         }
@@ -196,7 +198,7 @@ const initializeSender = async () => {
       offerToReceiveAudio: false
     })
     
-    setStatus('Offer 已生成，請複製給對方')
+    // 狀態會在 onIceCandidate 回調中更新
   } catch (error: unknown) {
     setStatus('取得相機失敗：' + (error instanceof Error ? error.message : String(error)))
   }
@@ -382,6 +384,7 @@ onMounted(() => {
     :local-s-d-p="localSDP"
     :remote-s-d-p="remoteSDP"
     :connection-status="connectionStatus"
+    :status-class="state.statusClass"
     :is-loading="isLoading"
     :is-sender="isSender"
     @update:remote-s-d-p="setRemoteSDP"
