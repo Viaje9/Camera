@@ -104,12 +104,25 @@
         <span>❌ 斷開連線</span>
       </button>
     </div>
+
+    <!-- 斷開連線確認彈窗 -->
+    <ConfirmModal
+      :show="showDisconnectModal"
+      title="斷開連線"
+      message="確定要斷開 WebRTC 連線嗎？這將結束視訊接收。"
+      confirm-text="斷開"
+      cancel-text="取消"
+      confirm-type="danger"
+      @confirm="handleConfirmDisconnect"
+      @cancel="handleCancelDisconnect"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useMedia } from '../composables/useMedia'
+import ConfirmModal from './ConfirmModal.vue'
 
 interface Props {
   stream: MediaStream | null
@@ -133,6 +146,7 @@ const isFullscreen = ref(false)
 const showControls = ref(true)
 const hasRemoteStream = ref(false)
 const controlsTimer = ref<number | null>(null)
+const showDisconnectModal = ref(false)
 
 const toggleMirror = () => {
   mirrorEnabled.value = !mirrorEnabled.value
@@ -166,9 +180,16 @@ const handleVideoClick = () => {
 }
 
 const disconnect = () => {
-  if (confirm('確定要斷開連線嗎？')) {
-    emit('disconnect')
-  }
+  showDisconnectModal.value = true
+}
+
+const handleConfirmDisconnect = () => {
+  showDisconnectModal.value = false
+  emit('disconnect')
+}
+
+const handleCancelDisconnect = () => {
+  showDisconnectModal.value = false
 }
 
 // 監聽全螢幕狀態變化

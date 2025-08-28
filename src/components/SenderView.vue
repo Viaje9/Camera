@@ -68,12 +68,25 @@
         <span>斷開連線</span>
       </button>
     </div>
+
+    <!-- 斷開連線確認彈窗 -->
+    <ConfirmModal
+      :show="showDisconnectModal"
+      title="斷開連線"
+      message="確定要斷開 WebRTC 連線嗎？這將結束視訊分享。"
+      confirm-text="斷開"
+      cancel-text="取消"
+      confirm-type="danger"
+      @confirm="handleConfirmDisconnect"
+      @cancel="handleCancelDisconnect"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useMedia } from '../composables/useMedia'
+import ConfirmModal from './ConfirmModal.vue'
 
 interface Props {
   stream: MediaStream | null
@@ -99,6 +112,7 @@ const mirrorEnabled = ref(false)
 const switchingCamera = ref(false)
 const currentCamera = ref<'前鏡頭' | '後鏡頭'>('後鏡頭')
 const currentFacingMode = ref<'user' | 'environment'>('environment')
+const showDisconnectModal = ref(false)
 
 const toggleMirror = () => {
   mirrorEnabled.value = !mirrorEnabled.value
@@ -127,9 +141,16 @@ const switchCamera = async () => {
 }
 
 const disconnect = () => {
-  if (confirm('確定要斷開連線嗎？')) {
-    emit('disconnect')
-  }
+  showDisconnectModal.value = true
+}
+
+const handleConfirmDisconnect = () => {
+  showDisconnectModal.value = false
+  emit('disconnect')
+}
+
+const handleCancelDisconnect = () => {
+  showDisconnectModal.value = false
 }
 
 onMounted(() => {
@@ -245,7 +266,7 @@ onUnmounted(() => {
   object-fit: cover;
 }
 
-.video.mirror {
+video.mirror {
   transform: scaleX(-1);
 }
 

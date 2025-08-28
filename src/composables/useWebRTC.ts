@@ -61,6 +61,39 @@ export function useWebRTC() {
     })
   }
 
+  const replaceTrack = async (newTrack: MediaStreamTrack, oldTrack?: MediaStreamTrack) => {
+    if (!pc.value) return false
+    
+    try {
+      const senders = pc.value.getSenders()
+      
+      if (oldTrack) {
+        // 如果指定了舊軌道，找到對應的 sender 並替換
+        const sender = senders.find(s => s.track === oldTrack)
+        if (sender) {
+          await sender.replaceTrack(newTrack)
+          return true
+        }
+      } else {
+        // 如果沒有指定舊軌道，找到同類型的 sender 並替換
+        const sender = senders.find(s => 
+          s.track && 
+          s.track.kind === newTrack.kind && 
+          s.track.readyState === 'live'
+        )
+        if (sender) {
+          await sender.replaceTrack(newTrack)
+          return true
+        }
+      }
+      
+      return false
+    } catch (error) {
+      console.error('替換軌道失敗:', error)
+      return false
+    }
+  }
+
   const createOffer = async (options?: RTCOfferOptions) => {
     if (!pc.value) throw new Error('PeerConnection not initialized')
     
@@ -123,6 +156,7 @@ export function useWebRTC() {
     setGatherStatus,
     createPeerConnection,
     addStream,
+    replaceTrack,
     createOffer,
     createAnswer,
     setRemoteDescription,

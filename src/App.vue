@@ -34,6 +34,7 @@ const {
   state, 
   createPeerConnection,
   addStream,
+  replaceTrack,
   createOffer,
   createAnswer,
   setRemoteDescription,
@@ -287,8 +288,10 @@ const handleCameraSwitch = async (facingMode: 'user' | 'environment') => {
   if (!localStream.value) return
   
   try {
-    // 停止當前流
-    localStream.value.getTracks().forEach(track => track.stop())
+    setStatus('切換相機中...')
+    
+    // 保存舊的視訊軌道
+    const oldVideoTrack = localStream.value.getVideoTracks()[0]
     
     // 獲取新的流
     const newStream = await getUserMedia({
@@ -296,12 +299,32 @@ const handleCameraSwitch = async (facingMode: 'user' | 'environment') => {
       audio: false
     })
     
-    localStream.value = newStream
-    currentFacingMode.value = facingMode
+    const newVideoTrack = newStream.getVideoTracks()[0]
     
-    // 重新添加到 peer connection
-    // 這裡需要更新 WebRTC composable 來支持替換軌道
-    addStream(newStream)
+    // 嘗試替換軌道
+    const replaced = await replaceTrack(newVideoTrack, oldVideoTrack)
+    
+    if (replaced) {
+      // 停止舊軌道
+      oldVideoTrack?.stop()
+      
+      // 更新本地流
+      localStream.value = newStream
+      currentFacingMode.value = facingMode
+      
+      setStatus('相機切換成功')
+      
+      // 短暫延遲後恢復正常狀態
+      setTimeout(() => {
+        if (isSender.value) {
+          setStatus('Offer 已生成，請複製給對方')
+        }
+      }, 1500)
+    } else {
+      // 如果替換失敗，停止新流
+      newStream.getTracks().forEach(track => track.stop())
+      setStatus('切換相機失敗：無法找到要替換的軌道')
+    }
   } catch (error: unknown) {
     setStatus('切換相機失敗：' + (error instanceof Error ? error.message : String(error)))
   }
