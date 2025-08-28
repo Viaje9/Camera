@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>一頁版 WebRTC 相機分享（手動訊令）</title>
+  <style>
+    :root { --bg:#0b1020; --fg:#e9eef7; --muted:#9fb0c3; --card:#131a32; --accent:#7aa2ff; }
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans TC, Helvetica, Arial, Apple Color Emoji, Noto Color Emoji, Segoe UI Emoji}
+    .wrap{max-width:980px;margin:0 auto;padding:16px}
+    h1{font-size:20px;margin:8px 0 12px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .card{background:var(--card);border-radius:14px;padding:12px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    fieldset{border:1px solid #2a355b;border-radius:10px}
+    legend{color:var(--muted)}
+    label{margin-right:12px;white-space:nowrap}
+    .controls{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+    button, select {
+      background:#1a2345;border:1px solid #2e3a6b;color:var(--fg);
+      padding:8px 12px;border-radius:10px;cursor:pointer
+    }
+    button[disabled]{opacity:.5;cursor:not-allowed}
+    textarea{width:100%;min-height:140px;background:#0f142a;color:var(--fg);border:1px solid #2e3a6b;border-radius:10px;padding:8px}
+    .videos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    video{width:100%;aspect-ratio:16/9;background:#000;border-radius:12px}
+    .hint{color:var(--muted);font-size:13px}
+    .status{margin-top:6px;color:#b6cffd;font-size:13px}
+    .ok{color:#6ee7b7}
+    .warn{color:#fbbf24}
+    .bad{color:#fb7185}
+    .small{font-size:13px}
+    a{color:var(--accent)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>一頁版 WebRTC 相機分享（無伺服器手動訊令）</h1>
+    <p class="hint">兩台裝置皆開啟本頁，選擇角色後依步驟複製貼上 <b>SDP</b> 即可直接 P2P 傳送相機畫面。需要 <b>HTTPS</b>（或 <code>localhost</code>）。行動 Safari 請點擊按鈕觸發播放。</p>
+
+    <div class="card">
+      <fieldset>
+        <legend>角色</legend>
+        <div class="controls">
+          <label><input type="radio" name="role" value="sender" checked> 發送端（分享相機）</label>
+          <label><input type="radio" name="role" value="viewer"> 接收端（觀看）</label>
+          <label class="small"><input type="checkbox" id="withAudio"> 包含麥克風（可選）</label>
+          <label class="small">後鏡頭偏好：
+            <select id="facing">
+              <option value="environment">後鏡頭</option>
+              <option value="user">前鏡頭</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="controls">
+        <button id="btnStart">1) 啟動</button>
+        <button id="btnOffer" disabled>2) 建立 Offer（發送端）</button>
+        <button id="btnSetOfferAndAnswer" disabled>2) 設定遠端 Offer 並建立 Answer（接收端）</button>
+        <button id="btnApplyAnswer" disabled>3) 設定遠端 Answer（發送端）</button>
+      </div>
+
+      <div class="row">
+        <div class="card">
+          <div>
+            <label for="localSdp">本機 SDP（複製給對方）</label>
+            <button id="btnCopyLocal" class="small">複製</button>
+          </div>
+          <textarea id="localSdp" readonly placeholder="按步驟產生..."></textarea>
+          <div class="status" id="gatherStatus">ICE 蒐集：—</div>
+        </div>
+        <div class="card">
+          <div>
+            <label for="remoteSdp">遠端 SDP（貼上對方給你的）</label>
+            <button id="btnPasteRemote" class="small">貼上（支援剪貼簿）</button>
+          </div>
+          <textarea id="remoteSdp" placeholder="在此貼上對方的 SDP JSON..."></textarea>
+        </div>
+      </div>
+
+      <div class="videos" style="margin-top:12px">
+        <div>
+          <div class="hint">本機預覽</div>
+          <video id="localVideo" playsinline muted></video>
+        </div>
+        <div>
+          <div class="hint">遠端畫面</div>
+          <video id="remoteVideo" playsinline></video>
+        </div>
+      </div>
+
+      <div class="status" id="status">狀態：尚未啟動</div>
+      <p class="hint small">若在嚴苛 NAT 環境下無法連線，可能需 TURN 伺服器。可在程式中加入 <code>iceServers: [{ urls: 'turn:YOUR_TURN', username: 'u', credential: 'p' }]</code>。</p>
+    </div>
+  </div>
+
+  <script>
+    const $ = (s)=>document.querySelector(s);
+    const log = (...a)=>{ console.log(...a); }
+    const statusEl = $('#status');
+    const gatherEl = $('#gatherStatus');
+
+    let pc;           // RTCPeerConnection
+    let localStream;  // MediaStream
+    let role = 'sender';
+
+    function setStatus(text, cls){
+      statusEl.textContent = '狀態：' + text;
+      statusEl.className = 'status ' + (cls||'');
+    }
+    function setGather(text, cls){
+      gatherEl.textContent = 'ICE 蒐集：' + text;
+      gatherEl.className = 'status ' + (cls||'');
+    }
+
+    function makePC(){
+      if (pc) pc.close();
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      });
+      pc.onicegatheringstatechange = ()=>{
+        setGather(pc.iceGatheringState);
+        if (pc.iceGatheringState === 'complete') {
+          $('#localSdp').value = JSON.stringify(pc.localDescription);
+        }
+      };
+      pc.onicecandidate = (e)=>{
+        if (!e.candidate) {
+          // gathering complete
+          $('#localSdp').value = JSON.stringify(pc.localDescription);
+        }
+      };
+      pc.onconnectionstatechange = ()=>{
+        setStatus('PeerConnection：' + pc.connectionState,
+          pc.connectionState === 'connected' ? 'ok' : (pc.connectionState==='failed'?'bad':'')
+        );
+      };
+      pc.ontrack = (ev)=>{
+        const [stream] = ev.streams;
+        const rv = $('#remoteVideo');
+        rv.srcObject = stream;
+        rv.play().catch(()=>{});
+      };
+      return pc;
+    }
+
+    async function start(){
+      role = document.querySelector('input[name="role"]:checked').value;
+      setStatus('初始化中...');
+      makePC();
+
+      if (role === 'sender'){
+        const withAudio = $('#withAudio').checked;
+        const facing = $('#facing').value;
+        try{
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: facing },
+            audio: withAudio
+          });
+          localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+          $('#localVideo').srcObject = localStream;
+          $('#localVideo').play().catch(()=>{});
+          setStatus('本機媒體啟動完成。請按「建立 Offer」。','ok');
+          $('#btnOffer').disabled = false;
+          $('#btnSetOfferAndAnswer').disabled = true;
+          $('#btnApplyAnswer').disabled = false; // 供最終步驟用
+        }catch(err){
+          console.error(err);
+          setStatus('取得相機/麥克風失敗：' + err.message, 'bad');
+        }
+      } else {
+        // viewer 不啟用本機相機
+        $('#localVideo').srcObject = null;
+        setStatus('接收端就緒。請貼上對方的 Offer，然後按「設定遠端 Offer 並建立 Answer」。','warn');
+        $('#btnOffer').disabled = true;
+        $('#btnSetOfferAndAnswer').disabled = false;
+        $('#btnApplyAnswer').disabled = true; // 發送端才用得到
+      }
+    }
+
+    async function createOffer(){
+      try{
+        setStatus('建立 Offer 中...');
+        const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: $('#withAudio').checked });
+        await pc.setLocalDescription(offer);
+        setStatus('已建立本機 Offer，等待 ICE 蒐集完成，複製「本機 SDP」給對方。','ok');
+      }catch(err){ setStatus('建立 Offer 失敗：' + err.message, 'bad'); }
+    }
+
+    async function setOfferAndCreateAnswer(){
+      try{
+        const txt = $('#remoteSdp').value.trim();
+        if(!txt) return alert('請先貼上對方的 Offer (JSON)');
+        const offer = JSON.parse(txt);
+        await pc.setRemoteDescription(offer);
+        setStatus('已設定遠端 Offer，建立 Answer 中...');
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        setStatus('已建立本機 Answer。等待 ICE 完成後，複製「本機 SDP」回傳給對方。','ok');
+      }catch(err){ setStatus('處理 Offer/Answer 失敗：' + err.message,'bad'); }
+    }
+
+    async function applyAnswer(){
+      try{
+        const txt = $('#remoteSdp').value.trim();
+        if(!txt) return alert('請先貼上對方回傳的 Answer (JSON)');
+        const answer = JSON.parse(txt);
+        await pc.setRemoteDescription(answer);
+        setStatus('連線完成（等待 ICE 連上）。','ok');
+      }catch(err){ setStatus('設定遠端 Answer 失敗：' + err.message,'bad'); }
+    }
+
+    // UI 綁定
+    $('#btnStart').addEventListener('click', start);
+    $('#btnOffer').addEventListener('click', createOffer);
+    $('#btnSetOfferAndAnswer').addEventListener('click', setOfferAndCreateAnswer);
+    $('#btnApplyAnswer').addEventListener('click', applyAnswer);
+
+    $('#btnCopyLocal').addEventListener('click', async ()=>{
+      const txt = $('#localSdp').value;
+      if (!txt) return;
+      try{ await navigator.clipboard.writeText(txt); }catch{}
+    });
+    $('#btnPasteRemote').addEventListener('click', async ()=>{
+      try{ const t = await navigator.clipboard.readText(); if(t) $('#remoteSdp').value = t; }catch{}
+    });
+
+    // 相容性提示
+    if (!('RTCPeerConnection' in window)) {
+      setStatus('此瀏覽器不支援 WebRTC。','bad');
+      $('#btnStart').disabled = true;
+    }
+  </script>
+</body>
+</html>
