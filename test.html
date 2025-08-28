@@ -24,6 +24,8 @@
     textarea{width:100%;min-height:140px;background:#0f142a;color:var(--fg);border:1px solid #2e3a6b;border-radius:10px;padding:8px}
     .videos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     video{width:100%;aspect-ratio:16/9;background:#000;border-radius:12px}
+  /* 左右鏡像支援 */
+  .mirror{ transform: scaleX(-1); transform-origin:center; }
     .hint{color:var(--muted);font-size:13px}
     .status{margin-top:6px;color:#b6cffd;font-size:13px}
     .ok{color:#6ee7b7}
@@ -81,11 +83,24 @@
 
       <div class="videos" style="margin-top:12px">
         <div>
-          <div class="hint">本機預覽</div>
+          <div class="hint" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+            <span>本機預覽</span>
+            <label class="small" style="display:flex;align-items:center;gap:6px">
+              <input type="checkbox" id="toggleLocalMirror"> 鏡像
+            </label>
+          </div>
           <video id="localVideo" playsinline muted></video>
         </div>
         <div>
-          <div class="hint">遠端畫面</div>
+          <div class="hint" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+            <span>遠端畫面</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label class="small" style="display:flex;align-items:center;gap:6px">
+                <input type="checkbox" id="toggleRemoteMirror"> 鏡像
+              </label>
+              <button id="btnFullscreen" class="small" title="遠端全螢幕">全螢幕</button>
+            </div>
+          </div>
           <video id="remoteVideo" playsinline></video>
         </div>
       </div>
@@ -220,6 +235,20 @@
     $('#btnSetOfferAndAnswer').addEventListener('click', setOfferAndCreateAnswer);
     $('#btnApplyAnswer').addEventListener('click', applyAnswer);
 
+    // 鏡像切換
+    $('#toggleLocalMirror')?.addEventListener('change', (e)=>{
+      const v = $('#localVideo');
+      if (!v) return;
+      if (e.target.checked) v.classList.add('mirror');
+      else v.classList.remove('mirror');
+    });
+    $('#toggleRemoteMirror')?.addEventListener('change', (e)=>{
+      const v = $('#remoteVideo');
+      if (!v) return;
+      if (e.target.checked) v.classList.add('mirror');
+      else v.classList.remove('mirror');
+    });
+
     $('#btnCopyLocal').addEventListener('click', async ()=>{
       const txt = $('#localSdp').value;
       if (!txt) return;
@@ -228,6 +257,39 @@
     $('#btnPasteRemote').addEventListener('click', async ()=>{
       try{ const t = await navigator.clipboard.readText(); if(t) $('#remoteSdp').value = t; }catch{}
     });
+
+    // 全螢幕支援（遠端畫面）
+    const remoteVideo = $('#remoteVideo');
+    const fullscreenBtn = $('#btnFullscreen');
+    function isFullscreen(){
+      return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+    }
+    async function enterFullscreen(el){
+      try{
+        if (el.requestFullscreen) return await el.requestFullscreen();
+        if (el.webkitRequestFullscreen) return await el.webkitRequestFullscreen();
+        if (el.msRequestFullscreen) return await el.msRequestFullscreen();
+      }catch{}
+      // iOS Safari 對 video 的後備方案（非真正全螢幕，但會啟動原生播放器）
+      try{
+        if (el.webkitEnterFullscreen) return el.webkitEnterFullscreen();
+      }catch{}
+    }
+    async function exitFullscreen(){
+      try{
+        if (document.exitFullscreen) return await document.exitFullscreen();
+        if (document.webkitExitFullscreen) return await document.webkitExitFullscreen();
+        if (document.msExitFullscreen) return await document.msExitFullscreen();
+      }catch{}
+    }
+    async function toggleFullscreen(){
+      if (!remoteVideo) return;
+      if (isFullscreen()) await exitFullscreen();
+      else await enterFullscreen(remoteVideo);
+    }
+    fullscreenBtn?.addEventListener('click', toggleFullscreen);
+    // 方便操作：雙擊遠端畫面也切換全螢幕
+    remoteVideo?.addEventListener('dblclick', toggleFullscreen);
 
     // 相容性提示
     if (!('RTCPeerConnection' in window)) {
