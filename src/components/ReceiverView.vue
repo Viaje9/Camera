@@ -207,7 +207,8 @@ onMounted(() => {
 
   // 防止螢幕休眠 (如果支援)
   if ('wakeLock' in navigator) {
-    (navigator as any).wakeLock.request('screen').catch(() => {
+    const nav = navigator as Navigator & { wakeLock?: { request: (type: string) => Promise<unknown> } }
+    nav.wakeLock?.request('screen').catch(() => {
       console.log('無法防止螢幕休眠')
     })
   }

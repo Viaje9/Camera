@@ -1,5 +1,19 @@
 import { ref, type Ref } from 'vue'
 
+// 擴展 Document 和 HTMLElement 類型以支援舊版瀏覽器 API
+interface ExtendedDocument extends Document {
+  webkitFullscreenElement?: Element
+  msFullscreenElement?: Element
+  webkitExitFullscreen?: () => Promise<void>
+  msExitFullscreen?: () => Promise<void>
+}
+
+interface ExtendedHTMLElement extends HTMLElement {
+  webkitRequestFullscreen?: () => Promise<void>
+  msRequestFullscreen?: () => Promise<void>
+  webkitEnterFullscreen?: () => void
+}
+
 export function useMedia() {
   const localVideo: Ref<HTMLVideoElement | null> = ref(null)
   const remoteVideo: Ref<HTMLVideoElement | null> = ref(null)
@@ -45,23 +59,25 @@ export function useMedia() {
   }
 
   const isFullscreen = () => {
+    const doc = document as ExtendedDocument
     return !!(
-      document.fullscreenElement ||
-      (document as any).webkitFullscreenElement ||
-      (document as any).msFullscreenElement
+      doc.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.msFullscreenElement
     )
   }
 
   const enterFullscreen = async (element: HTMLElement) => {
+    const extElement = element as ExtendedHTMLElement
     try {
       if (element.requestFullscreen) {
         return await element.requestFullscreen()
       }
-      if ((element as any).webkitRequestFullscreen) {
-        return await (element as any).webkitRequestFullscreen()
+      if (extElement.webkitRequestFullscreen) {
+        return await extElement.webkitRequestFullscreen()
       }
-      if ((element as any).msRequestFullscreen) {
-        return await (element as any).msRequestFullscreen()
+      if (extElement.msRequestFullscreen) {
+        return await extElement.msRequestFullscreen()
       }
     } catch (error) {
       console.log('進入全螢幕失敗:', error)
@@ -69,8 +85,8 @@ export function useMedia() {
     
     // iOS Safari 對 video 的後備方案
     try {
-      if ((element as any).webkitEnterFullscreen) {
-        return (element as any).webkitEnterFullscreen()
+      if (extElement.webkitEnterFullscreen) {
+        return extElement.webkitEnterFullscreen()
       }
     } catch (error) {
       console.log('iOS 全螢幕失敗:', error)
@@ -78,15 +94,16 @@ export function useMedia() {
   }
 
   const exitFullscreen = async () => {
+    const doc = document as ExtendedDocument
     try {
       if (document.exitFullscreen) {
         return await document.exitFullscreen()
       }
-      if ((document as any).webkitExitFullscreen) {
-        return await (document as any).webkitExitFullscreen()
+      if (doc.webkitExitFullscreen) {
+        return await doc.webkitExitFullscreen()
       }
-      if ((document as any).msExitFullscreen) {
-        return await (document as any).msExitFullscreen()
+      if (doc.msExitFullscreen) {
+        return await doc.msExitFullscreen()
       }
     } catch (error) {
       console.log('退出全螢幕失敗:', error)
